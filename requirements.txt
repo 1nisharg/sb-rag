@@ -1,35 +1,27 @@
-#PIP
 pip==24.0
+setuptools==65.5.0
 
-# Core
 pandas==2.0.3
 numpy==1.24.3
 scikit-learn==1.3.2
 scipy==1.10.1
 
-# Sentence Embeddings
 sentence-transformers==2.2.2
-sentencepiece==0.1.99  # Use prebuilt wheel
+sentencepiece==0.1.96
 
-# Transformers (no Rust)
-transformers==4.28.1  # Avoids tokenizers build issue
-tokenizers==0.13.2    # Avoids Rust build
+transformers==4.28.1
+tokenizers==0.13.2
 
-# Other NLP/LLM
 accelerate==0.21.0
 faiss-cpu==1.7.4
 tiktoken==0.4.0
 
-# Langchain
 langchain==0.0.354
 langchain-groq==0.0.1
 
-# Streamlit
 streamlit==1.28.1
 openpyxl==3.1.2
 python-dotenv==1.0.0
 
-# Misc
 duckduckgo-search==5.3.1b1
 pydantic==1.10.13
-setuptools==65.5.0
