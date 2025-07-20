@@ -26,3 +26,5 @@ python-dotenv==1.0.0
 tiktoken==0.5.1
 duckduckgo-search==5.3.1b1
 pydantic==1.10.13
+
+gdown==4.7.1
