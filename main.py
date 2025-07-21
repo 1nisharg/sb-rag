@@ -23,8 +23,6 @@ from dotenv import load_dotenv
 from difflib import get_close_matches
 import re
 from unidecode import unidecode
-import requests
-import io
 
 # Load environment variables
 load_dotenv()
@@ -42,6 +40,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Try multiple possible file locations
 POSSIBLE_FILE_PATHS = [
+    "main.xlsx",
     "dataset.xlsx",
     "dataset/dataset.xlsx", 
     "Database/dataset.xlsx",
@@ -53,26 +52,12 @@ POSSIBLE_FILE_PATHS = [
 # Try multiple possible sheet names
 POSSIBLE_SHEET_NAMES = ["Data", "Sheet1", "data", "DATABASE", "Main"]
 
-import requests
-import io
-
 def find_excel_file():
-    """Download Excel file from Google Drive."""
-    DRIVE_FILE_ID = "1gc0sUrNAoOQmt9Fx9mjMNfwfNLfNaB_8"  # Your file ID
-    download_url = f"https://drive.google.com/uc?export=download&id={DRIVE_FILE_ID}"
-
-    try:
-        response = requests.get(download_url)
-        response.raise_for_status()
-
-        # Check if this is likely an HTML page instead of a real Excel file
-        if "text/html" in response.headers["Content-Type"]:
-            raise ValueError("Downloaded content is HTML, not an Excel file. File may be private or link invalid.")
-        
-        return io.BytesIO(response.content)
-    except Exception as e:
-        st.error(f"❌ Error downloading file from Google Drive: {str(e)}")
-        return None
+    """Find the Excel file in possible locations"""
+    for file_path in POSSIBLE_FILE_PATHS:
+        if os.path.exists(file_path):
+            return file_path
+    return None
 
 def find_sheet_name(file_path):
     """Find the correct sheet name in the Excel file"""
@@ -125,12 +110,12 @@ class SmartExcelRAG:
             # Find the Excel file
             excel_file_path = find_excel_file()
             if not excel_file_path:
-                st.error("❌ Database file could not be downloaded from Google Drive.")
-                st.write("📁 Please check:")
-                st.write("  • Google Drive link is accessible")
-                st.write("  • File ID is correctly configured in the code")
-                st.write("  • Internet connection is working")    
-               
+                st.error("❌ Database file not found. Please ensure you have one of these files:")
+                st.write("📁 Looking for files in these locations:")
+                for path in POSSIBLE_FILE_PATHS:
+                    st.write(f"  • {path}")
+                
+                # Show file upload option as fallback
                 st.markdown("---")
                 st.subheader("📤 Upload Your Database File")
                 uploaded_file = st.file_uploader(
@@ -167,40 +152,28 @@ class SmartExcelRAG:
                 else:
                     return False
             else:
-                file_content = find_excel_file()
-                if file_content is None:
-                    st.error("❌ Could not download file from Google Drive")
+                # Find the correct sheet name
+                sheet_name, available_sheets = find_sheet_name(excel_file_path)
+                
+                if not sheet_name:
+                    st.error(f"❌ Could not read Excel file: {excel_file_path}")
                     return False
                 
-                try:
-                    excel_file = pd.ExcelFile(file_content, engine='openpyxl')
-                    available_sheets = excel_file.sheet_names
-                    sheet_name = None
-                    for preferred_sheet in POSSIBLE_SHEET_NAMES:
-                        if preferred_sheet in available_sheets:
-                            sheet_name = preferred_sheet
-                            break
-                    
-                    if not sheet_name:
-                        sheet_name = available_sheets[0]
-                        
-                except Exception as e:
-                    st.error(f"❌ Could not read Excel file from Google Drive: {str(e)}")
-                    return False
-                
+                # Load data from found file\
                 usecols = ['Country', 'Retailer', 'Issue Start Date', 'Issue End Date', 'Brand', 'Category', 'Product', 'Size', 'Price', 'Discounted Price', 'Discount Rate', 'Main Flyer', 'Quarter', 'Month', 'Year', 'Week']
-                self.df = pd.read_excel(file_content, sheet_name=sheet_name, usecols=usecols, engine='openpyxl')
-                
+                self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, usecols=usecols)
+                #self.df = self.df.head(200)
                 if 'Year' in self.df.columns:
                     self.df = self.df[self.df['Year'].isin([2024, 2025])]
                     st.info(f"📅 Filtered data for years 2024 and 2025")
                 else:
                     st.warning("⚠️ Year column not found in dataset. Loading all data.")
-                    
-                st.info(f"📁 File: Downloaded from Google Drive")
+
+                st.info(f"📁 File: {excel_file_path}")
                 st.info(f"📋 Sheet: {sheet_name}")
                 if len(available_sheets) > 1:
                     st.info(f"📋 Available sheets: {', '.join(available_sheets)}")
+            
             if self.df.empty:
                 st.error("❌ No data found in the Excel file")
                 return False
