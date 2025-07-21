@@ -9,7 +9,7 @@ faiss-cpu==1.7.4
 langchain==0.1.16
 langchain-core==0.1.50
 langchain-groq==0.0.3
-langsmith==0.0.62
+langsmith==0.1.20
 streamlit==1.28.1
 openpyxl==3.1.2
 python-dotenv==1.0.0
