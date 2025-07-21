@@ -53,25 +53,25 @@ POSSIBLE_FILE_PATHS = [
 # Try multiple possible sheet names
 POSSIBLE_SHEET_NAMES = ["Data", "Sheet1", "data", "DATABASE", "Main"]
 
+import requests
+import io
+
 def find_excel_file():
-    """Download Excel file from Google Drive"""
-    # Replace 'YOUR_FILE_ID' with the actual file ID from your Google Drive link
-    # Extract file ID from: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
-    DRIVE_FILE_ID = "1gc0sUrNAoOQmt9Fx9mjMNfwfNLfNaB_8"  # Replace with actual file ID
-    
+    """Download Excel file from Google Drive."""
+    DRIVE_FILE_ID = "1gc0sUrNAoOQmt9Fx9mjMNfwfNLfNaB_8"  # Your file ID
+    download_url = f"https://drive.google.com/uc?export=download&id={DRIVE_FILE_ID}"
+
     try:
-        # Google Drive direct download URL
-        download_url = f"https://drive.google.com/uc?export=download&id={DRIVE_FILE_ID}"
-        
-        # Download the file
         response = requests.get(download_url)
         response.raise_for_status()
+
+        # Check if this is likely an HTML page instead of a real Excel file
+        if "text/html" in response.headers["Content-Type"]:
+            raise ValueError("Downloaded content is HTML, not an Excel file. File may be private or link invalid.")
         
-        # Return the file content as BytesIO object
         return io.BytesIO(response.content)
-    
     except Exception as e:
-        st.error(f"Error downloading file from Google Drive: {str(e)}")
+        st.error(f"❌ Error downloading file from Google Drive: {str(e)}")
         return None
 
 def find_sheet_name(file_path):
