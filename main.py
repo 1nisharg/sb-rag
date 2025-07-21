@@ -173,7 +173,7 @@ class SmartExcelRAG:
                     return False
                 
                 try:
-                    excel_file = pd.ExcelFile(file_content)
+                    excel_file = pd.ExcelFile(file_content, engine='openpyxl')
                     available_sheets = excel_file.sheet_names
                     sheet_name = None
                     for preferred_sheet in POSSIBLE_SHEET_NAMES:
@@ -189,7 +189,7 @@ class SmartExcelRAG:
                     return False
                 
                 usecols = ['Country', 'Retailer', 'Issue Start Date', 'Issue End Date', 'Brand', 'Category', 'Product', 'Size', 'Price', 'Discounted Price', 'Discount Rate', 'Main Flyer', 'Quarter', 'Month', 'Year', 'Week']
-                self.df = pd.read_excel(file_content, sheet_name=sheet_name, usecols=usecols)
+                self.df = pd.read_excel(file_content, sheet_name=sheet_name, usecols=usecols, engine='openpyxl')
                 
                 if 'Year' in self.df.columns:
                     self.df = self.df[self.df['Year'].isin([2024, 2025])]
