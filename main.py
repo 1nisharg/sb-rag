@@ -163,11 +163,11 @@ class SmartExcelRAG:
                 usecols = ['Country', 'Retailer', 'Issue Start Date', 'Issue End Date', 'Brand', 'Category', 'Product', 'Size', 'Price', 'Discounted Price', 'Discount Rate', 'Main Flyer', 'Quarter', 'Month', 'Year', 'Week']
                 self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, usecols=usecols)
                # self.df = self.df.head(200)
-                 if 'Year' in self.df.columns:
+                if 'Year' in self.df.columns:
                      self.df = self.df[self.df['Year'].isin([2024, 2025])]
                      st.info(f"📅 Filtered data for years 2024 and 2025")
-                 else:
-                     st.warning("⚠️ Year column not found in dataset. Loading all data.")
+                else:
+                    st.warning("⚠️ Year column not found in dataset. Loading all data.")
 
                 st.info(f"📁 File: {excel_file_path}")
                 st.info(f"📋 Sheet: {sheet_name}")
