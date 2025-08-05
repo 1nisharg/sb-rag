@@ -310,7 +310,7 @@ class SmartExcelRAG:
                     
                     except Exception as e:
                         st.error(f"❌ Error reading uploaded file: {str(e)}")
-                                 return False
+                        return False
                 else:
                     return False
             else:
