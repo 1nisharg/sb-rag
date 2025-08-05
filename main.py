@@ -10,7 +10,7 @@ warnings.filterwarnings('ignore')
 
 # LangChain imports
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
+from langchain_community.vectorstores import FAISS 
 from langchain_community.embeddings import HuggingFaceEmbeddings  # if using langchain core
 #from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -23,6 +23,9 @@ from dotenv import load_dotenv
 from difflib import get_close_matches
 import re
 from unidecode import unidecode
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 
 # Load environment variables
 load_dotenv()
@@ -36,7 +39,12 @@ st.set_page_config(
 
 # Configuration
 #GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+EMBEDDINGS_DIR = "embd_cache"
+VECTORSTORE_PATH = os.path.join(EMBEDDINGS_DIR, "faiss_index")
+DATA_HASH_FILE = os.path.join(EMBEDDINGS_DIR, "data_hash.txt")
+
 
 # Try multiple possible file locations
 POSSIBLE_FILE_PATHS = [
@@ -74,6 +82,116 @@ def find_sheet_name(file_path):
         return available_sheets[0], available_sheets
     except Exception as e:
         return None, []
+
+import hashlib
+import pickle
+
+def get_data_hash(df):
+    """Generate hash of the dataframe to detect changes"""
+    return hashlib.md5(pd.util.hash_pandas_object(df, index=True).values.tobytes()).hexdigest()
+
+def save_vectorstore_metadata(vectorstore, embeddings, data_insights, column_mappings, data_hash):
+    """Save vectorstore and related metadata"""
+    os.makedirs(EMBEDDINGS_DIR, exist_ok=True)
+    
+    # Save FAISS index
+    vectorstore.save_local(VECTORSTORE_PATH)
+    
+    # Save metadata
+    metadata = {
+        'data_insights': data_insights,
+        'column_mappings': column_mappings,
+        'data_hash': data_hash
+    }
+    
+    with open(os.path.join(EMBEDDINGS_DIR, "metadata.pkl"), 'wb') as f:
+        pickle.dump(metadata, f)
+    
+    # Save embeddings model info
+    with open(os.path.join(EMBEDDINGS_DIR, "embeddings_info.pkl"), 'wb') as f:
+        pickle.dump({'model_name': embeddings.model_name}, f)
+
+def load_vectorstore_if_exists(embeddings):
+    """Load existing vectorstore if available and data hasn't changed"""
+    try:
+        if not os.path.exists(VECTORSTORE_PATH):
+            return None, None, None, None
+        
+        # Load metadata
+        with open(os.path.join(EMBEDDINGS_DIR, "metadata.pkl"), 'rb') as f:
+            metadata = pickle.load(f)
+        
+        # Load vectorstore
+        vectorstore = FAISS.load_local(VECTORSTORE_PATH, embeddings, allow_dangerous_deserialization=True)
+        
+        return (vectorstore, 
+                metadata['data_insights'], 
+                metadata['column_mappings'], 
+                metadata['data_hash'])
+    
+    except Exception as e:
+        st.warning(f"Could not load cached embeddings: {str(e)}")
+        return None, None, None, None
+    
+    
+def detect_chart_intent(query: str) -> str:
+    query = query.lower()
+    if "price" in query and "month" in query:
+        return "price_vs_month_line"
+    elif "heatmap" in query:
+        return "category_heatmap"
+    elif "distribution" in query and "category" in query:
+        return "category_pie"
+    elif "top brand" in query or "brand comparison" in query:
+        return "brand_bar"
+    elif "trend" in query:
+        return "trend_line"
+    else:
+        return "unknown"
+
+def plot_price_trend(df):
+    if 'Month' in df.columns and 'Price' in df.columns:
+        monthly_price = df.groupby('Month')['Price'].mean().reset_index()
+        fig, ax = plt.subplots()
+        sns.lineplot(data=monthly_price, x='Month', y='Price', marker='o', ax=ax)
+        ax.set_title("Average Price Over Months")
+        st.pyplot(fig)
+    else:
+        st.warning("Required columns 'Month' or 'Price' not found.")
+
+def plot_category_heatmap(df):
+    if 'Category' in df.columns and 'Retailer' in df.columns:
+        pivot = df.pivot_table(index='Category', columns='Retailer', values='Price', aggfunc='mean')
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.heatmap(pivot, cmap="YlGnBu", annot=True, fmt=".1f", ax=ax)
+        ax.set_title("Average Price Heatmap by Category & Retailer")
+        st.pyplot(fig)
+    else:
+        st.warning("Required columns not found for heatmap.")
+
+def plot_category_pie(df):
+    if 'Category' in df.columns:
+        top_cats = df['Category'].value_counts().head(5)
+        fig, ax = plt.subplots()
+        ax.pie(top_cats, labels=top_cats.index, autopct='%1.1f%%')
+        ax.set_title("Top 5 Category Distribution")
+        st.pyplot(fig)
+
+def plot_brand_bar(df):
+    if 'Brand' in df.columns:
+        brand_counts = df['Brand'].value_counts().head(10)
+        fig, ax = plt.subplots()
+        sns.barplot(x=brand_counts.values, y=brand_counts.index, ax=ax)
+        ax.set_title("Top 10 Brands by Count")
+        st.pyplot(fig)
+
+def plot_trend_generic(df):
+    if 'Month' in df.columns and 'Discount Rate' in df.columns:
+        trend = df.groupby('Month')['Discount Rate'].mean().reset_index()
+        fig, ax = plt.subplots()
+        sns.lineplot(data=trend, x='Month', y='Discount Rate', marker='o', ax=ax)
+        ax.set_title("Discount Rate Trend Over Months")
+        st.pyplot(fig)
 
 class SmartExcelRAG:
     def __init__(self):
@@ -162,12 +280,12 @@ class SmartExcelRAG:
                 # Load data from found file\
                 usecols = ['Country', 'Retailer', 'Issue Start Date', 'Issue End Date', 'Brand', 'Category', 'Product', 'Size', 'Price', 'Discounted Price', 'Discount Rate', 'Main Flyer', 'Quarter', 'Month', 'Year', 'Week']
                 self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, usecols=usecols)
-               # self.df = self.df.head(200)
-                if 'Year' in self.df.columns:
-                     self.df = self.df[self.df['Year'].isin([2024, 2025])]
-                     st.info(f"📅 Filtered data for years 2024 and 2025")
-                else:
-                    st.warning("⚠️ Year column not found in dataset. Loading all data.")
+                self.df = self.df.head(200)
+                # if 'Year' in self.df.columns:
+                #      self.df = self.df[self.df['Year'].isin([2024, 2025])]
+                #      st.info(f"📅 Filtered data for years 2024 and 2025")
+                # else:
+                #     st.warning("⚠️ Year column not found in dataset. Loading all data.")
 
                 st.info(f"📁 File: {excel_file_path}")
                 st.info(f"📋 Sheet: {sheet_name}")
@@ -459,43 +577,62 @@ class SmartExcelRAG:
         )
     
     def setup_vectorstore(self):
-        """Setup optimized vector store for large datasets"""
         try:
-            with st.spinner("🔄 Creating intelligent document embeddings..."):
-                # Create documents
+            current_hash = get_data_hash(self.df)
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
+                )
+            
+            with st.spinner("📥 Checking for cached embeddings..."):
+                cached_vectorstore, cached_insights, cached_mappings, cached_hash = load_vectorstore_if_exists(self.embeddings)
+            
+            if (cached_vectorstore is not None and 
+                cached_hash == current_hash and 
+                cached_insights is not None and 
+                cached_mappings is not None):
+                
+                st.success("✅ Using cached embeddings - faster startup!")
+                self.vectorstore = cached_vectorstore
+                self.data_insights = cached_insights
+                self.column_mappings = cached_mappings
+                return True
+            
+            with st.spinner("🔄 Creating new embeddings (this will take a moment)..."):
+                st.info("💡 This is a one-time process. Future sessions will be much faster!")
+                
                 documents = self.create_enhanced_documents()
                 
                 if not documents:
                     st.error("No documents created")
                     return False
                 
-                # Split documents with optimized parameters
                 text_splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=1500,  # Larger chunks for better context
+                    chunk_size=1500,
                     chunk_overlap=200,
                     length_function=len,
                     separators=[" || ", " | ", "\n", " ", ""]
-                )
+                    )
                 
                 split_docs = text_splitter.split_documents(documents)
-                
-                # Create embeddings with better model
-                self.embeddings = HuggingFaceEmbeddings(
-                    model_name="sentence-transformers/all-MiniLM-L6-v2",
-                    model_kwargs={'device': 'cpu'},
-                    encode_kwargs={'normalize_embeddings': True}
-                )
-                
-                # Create vector store with optimized settings
                 self.vectorstore = FAISS.from_documents(
                     split_docs, 
                     self.embeddings,
                     distance_strategy="COSINE"
-                )
+                    )
                 
-                st.success(f"✅ Vector store created with {len(split_docs)} document chunks")
+                save_vectorstore_metadata(
+                    self.vectorstore, 
+                    self.embeddings, 
+                    self.data_insights, 
+                    self.column_mappings, 
+                    current_hash
+                    )
+                
+                st.success(f"✅ New embeddings created and cached with {len(split_docs)} document chunks")
                 return True
-                
+            
         except Exception as e:
             st.error(f"Error setting up vector store: {str(e)}")
             return False
@@ -504,7 +641,7 @@ class SmartExcelRAG:
         """Setup optimized conversation chain"""
         try:
             # Initialize Groq LLM with better parameters
-            llm = ChatGoogleGenerativeAI(
+            llm = ChatGoogleGenerativeAI(   
                 google_api_key=GEMINI_API_KEY,
                 model="gemini-2.5-flash",  #gemini-pro
                 temperature=0.1,
@@ -519,7 +656,7 @@ class SmartExcelRAG:
             - Columns: Country, Retailer, Issue Id, Issue Start Date, Issue End Date, Issue Span, Week, Month, Quarter, Category, Brand, Product, Single Sku, Size, Price, Discounted Price, Discount Rate, Main Flyer (Yes/No), etc.
             - Main focus: Flyer participation analysis, brand comparisons, promotional effectiveness
             - Key entities: Brands (LAY'S, PARADISE, PRINGLES, NESTLE, etc.), Countries (Bahrain, UAE, KSA, etc.), Retailers, Categories (Chips, Kids Cereals, etc.)
-            - Time periods: Q1-Q4 2022, monthly breakdowns
+            - Time periods: Q1-Q4 2022, monthly breakdowns 
             - Flyerdata: Main Flyer participation (Yes/No), promotional periods, discount rates
             
             ANALYTICAL CAPABILITIES:
@@ -1152,6 +1289,25 @@ def main():
             - Discount analysis by category
             - Regional price comparisons
             """)
+            
+            # Cache Management Section
+            st.subheader("🗄️ Cache Management")
+            if os.path.exists(EMBEDDINGS_DIR):
+                cache_size = sum(os.path.getsize(os.path.join(EMBEDDINGS_DIR, f)) 
+                                for f in os.listdir(EMBEDDINGS_DIR) 
+                                if os.path.isfile(os.path.join(EMBEDDINGS_DIR, f)))
+                st.write(f"Cache size: {cache_size / (1024*1024):.1f} MB")
+                
+                if st.button("🗑️ Clear Cache"):
+                    import shutil
+                    try:
+                        shutil.rmtree(EMBEDDINGS_DIR)
+                        st.success("Cache cleared! Restart the app to rebuild embeddings.")
+                        st.rerun()  # Refresh the page to reflect changes
+                    except Exception as e:
+                        st.error(f"Error clearing cache: {e}")
+            else:
+                st.write("No cache found")
         
         # Chat interface
         st.subheader("💬 Ask Your Questions")
