@@ -206,6 +206,37 @@ class SmartExcelRAG:
         self.embeddings = None
         self.column_mappings = {}
         self.data_insights = {}
+
+    def quick_restore_from_cache(self):
+        try:
+            excel_file_path = find_excel_file()
+            if not excel_file_path:
+                return False
+            sheet_name, _ = find_sheet_name(excel_file_path)
+            if not sheet_name:
+                return False
+                
+            self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, nrows=10)  # Just 10 rows for structure
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
+            )
+            
+            cached_vectorstore, cached_insights, cached_mappings, cached_hash = load_vectorstore_if_exists(self.embeddings)
+            
+            if cached_vectorstore and cached_insights and cached_mappings:
+                self.vectorstore = cached_vectorstore
+                self.data_insights = cached_insights
+                self.column_mappings = cached_mappings
+                
+                if self.setup_conversation_chain():
+                    return True
+            return False
+        
+        except Exception as e:
+            st.error(f"Quick restore failed: {e}")
+            return False
     
     def compare_discount_rate_by_brand(self, campaign_id: str, brands: list):
         if 'Brand' not in self.df.columns or 'Discount Rate' not in self.df.columns:
@@ -221,19 +252,37 @@ class SmartExcelRAG:
         summary = filtered.groupby("Brand")["Discount Rate"].agg(["count", "mean", "max", "min"]).reset_index()
         summary.columns = ["Brand", "Entries", "Average Discount %", "Max Discount %", "Min Discount %"]
         return summary.to_markdown(index=False)
-
+        
     def load_and_process_data(self):
-        """Load and process the Excel database efficiently"""
+        
+        if (hasattr(self, 'data_insights') and 
+            self.data_insights and 
+            
+            hasattr(self, 'vectorstore') and 
+            self.vectorstore):
+                
+            excel_file_path = find_excel_file()
+            if excel_file_path:
+                sheet_name, _ = find_sheet_name(excel_file_path)
+                if sheet_name:
+                    try:
+                        usecols = ['Country', 'Retailer', 'Issue Start Date', 'Issue End Date', 'Brand', 'Category', 'Product', 'Size', 'Price', 'Discounted Price', 'Discount Rate', 'Main Flyer', 'Quarter', 'Month', 'Year', 'Week']
+                        self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, usecols=usecols)
+                        self.df = self.df.head(200)  # Limit as before
+                        self.preprocess_data()
+                        self.enhance_data_for_analysis()
+                        st.success("✅ Full dataset loaded from existing cache")
+                        return True
+                    except Exception as e:
+                        st.warning(f"Could not load from cache, reinitializing: {e}")
         try:
-            # Find the Excel file
             excel_file_path = find_excel_file()
             if not excel_file_path:
                 st.error("❌ Database file not found. Please ensure you have one of these files:")
                 st.write("📁 Looking for files in these locations:")
                 for path in POSSIBLE_FILE_PATHS:
                     st.write(f"  • {path}")
-                
-                # Show file upload option as fallback
+                    
                 st.markdown("---")
                 st.subheader("📤 Upload Your Database File")
                 uploaded_file = st.file_uploader(
@@ -244,78 +293,54 @@ class SmartExcelRAG:
                 
                 if uploaded_file:
                     try:
-                        # Try to find the correct sheet
                         excel_file = pd.ExcelFile(uploaded_file)
                         available_sheets = excel_file.sheet_names
-                        
                         st.write(f"📋 Available sheets: {', '.join(available_sheets)}")
                         
-                        # Try preferred sheet names first
                         sheet_name = None
                         for preferred_sheet in POSSIBLE_SHEET_NAMES:
                             if preferred_sheet in available_sheets:
                                 sheet_name = preferred_sheet
                                 break
-                        
                         if not sheet_name:
                             sheet_name = available_sheets[0]
-                        
-                        # Load the data
+                            
                         self.df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
                         st.success(f"✅ Data loaded from uploaded file, sheet: {sheet_name}")
-                        
+                    
                     except Exception as e:
                         st.error(f"❌ Error reading uploaded file: {str(e)}")
-                        return False
+                                 return False
                 else:
                     return False
             else:
-                # Find the correct sheet name
                 sheet_name, available_sheets = find_sheet_name(excel_file_path)
-                
                 if not sheet_name:
                     st.error(f"❌ Could not read Excel file: {excel_file_path}")
                     return False
                 
-                # Load data from found file\
                 usecols = ['Country', 'Retailer', 'Issue Start Date', 'Issue End Date', 'Brand', 'Category', 'Product', 'Size', 'Price', 'Discounted Price', 'Discount Rate', 'Main Flyer', 'Quarter', 'Month', 'Year', 'Week']
                 self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, usecols=usecols)
                 self.df = self.df.head(200)
-                # if 'Year' in self.df.columns:
-                #      self.df = self.df[self.df['Year'].isin([2024, 2025])]
-                #      st.info(f"📅 Filtered data for years 2024 and 2025")
-                # else:
-                #     st.warning("⚠️ Year column not found in dataset. Loading all data.")
-
                 st.info(f"📁 File: {excel_file_path}")
                 st.info(f"📋 Sheet: {sheet_name}")
                 if len(available_sheets) > 1:
                     st.info(f"📋 Available sheets: {', '.join(available_sheets)}")
-            
             if self.df.empty:
                 st.error("❌ No data found in the Excel file")
                 return False
-            
-            # Data preprocessing for better retrieval
+                
             self.preprocess_data()
             self.enhance_data_for_analysis()
-
-            # Create data insights for intelligent querying
             self.create_data_insights()
-            
-            # Create column mappings for better understanding
             self.create_column_mappings()
-            
             st.success(f"✅ Database loaded: {len(self.df):,} records with {len(self.df.columns)} columns")
             
-            # Show column names for verification
             with st.expander("📊 Column Information"):
                 st.write("**Columns in your database:**")
                 for i, col in enumerate(self.df.columns, 1):
                     st.write(f"{i}. {col}")
-            
             return True
-            
         except FileNotFoundError:
             st.error(f"❌ Database file not found")
             return False
@@ -324,6 +349,38 @@ class SmartExcelRAG:
             st.write("**Debug information:**")
             st.write(f"Error type: {type(e).__name__}")
             st.write(f"Error details: {str(e)}")
+            return False
+
+    def quick_restore_from_cache(self):
+        try:
+            excel_file_path = find_excel_file()
+            if not excel_file_path:
+                return False
+                
+            sheet_name, _ = find_sheet_name(excel_file_path)
+            if not sheet_name:
+                return False
+            
+            self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, nrows=10)  # Just 10 rows for structure
+            
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
+            )
+            
+            cached_vectorstore, cached_insights, cached_mappings, cached_hash = load_vectorstore_if_exists(self.embeddings)
+            
+            if cached_vectorstore and cached_insights and cached_mappings:
+                self.vectorstore = cached_vectorstore
+                self.data_insights = cached_insights
+                self.column_mappings = cached_mappings
+                
+                if self.setup_conversation_chain():
+                    return True
+            return False
+        except Exception as e:
+            st.error(f"Quick restore failed: {e}")
             return False
     
     def preprocess_data(self):
@@ -1217,15 +1274,53 @@ class SmartExcelRAG:
         except Exception as e:
             return df
 
+def validate_cache_integrity():
+    """Validate that cache is complete and usable"""
+    try:
+        if not os.path.exists(EMBEDDINGS_DIR):
+            return False
+            
+        required_files = ["metadata.pkl", "embeddings_info.pkl"]
+        faiss_files = ["index.faiss", "index.pkl"]
+        
+        # Check metadata files
+        for file in required_files:
+            if not os.path.exists(os.path.join(EMBEDDINGS_DIR, file)):
+                return False
+                
+        # Check FAISS index files
+        faiss_path = os.path.join(EMBEDDINGS_DIR, "faiss_index")
+        for file in faiss_files:
+            if not os.path.exists(os.path.join(faiss_path, file)):
+                return False
+                
+        return True
+        
+    except Exception:
+        return False
+
 def main():
     st.title("🤖 Smart Excel Data Assistant")
     st.markdown("*Intelligent query system for comprehensive data analysis*")
     
-    # Initialize the system
+    # Initialize the system with persistent check
     if 'rag_system' not in st.session_state:
         st.session_state.rag_system = SmartExcelRAG()
         st.session_state.system_ready = False
         st.session_state.chat_history = []
+        st.session_state.data_loaded = False
+        st.session_state.embeddings_loaded = False
+
+    # Quick check if system was already ready but session restarted
+    if not st.session_state.system_ready and os.path.exists(EMBEDDINGS_DIR):
+        # Try to quickly restore from cache without full reinitialization
+        try:
+            with st.spinner("🔄 Restoring from cache..."):
+                if st.session_state.rag_system.quick_restore_from_cache():
+                    st.session_state.system_ready = True
+                    st.success("✅ System restored from cache - ready to use!")
+        except Exception as e:
+            st.warning(f"Cache restore failed: {e}. Will reinitialize...")
     
     # Check if system is ready, if not try to initialize
     if not st.session_state.system_ready:
@@ -1293,21 +1388,35 @@ def main():
             # Cache Management Section
             st.subheader("🗄️ Cache Management")
             if os.path.exists(EMBEDDINGS_DIR):
+                cache_valid = validate_cache_integrity()
                 cache_size = sum(os.path.getsize(os.path.join(EMBEDDINGS_DIR, f)) 
                                 for f in os.listdir(EMBEDDINGS_DIR) 
                                 if os.path.isfile(os.path.join(EMBEDDINGS_DIR, f)))
-                st.write(f"Cache size: {cache_size / (1024*1024):.1f} MB")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Cache Size", f"{cache_size / (1024*1024):.1f} MB")
+                with col2:
+                    status = "✅ Valid" if cache_valid else "❌ Invalid"
+                    st.metric("Cache Status", status)
                 
                 if st.button("🗑️ Clear Cache"):
                     import shutil
                     try:
                         shutil.rmtree(EMBEDDINGS_DIR)
-                        st.success("Cache cleared! Restart the app to rebuild embeddings.")
-                        st.rerun()  # Refresh the page to reflect changes
+                        st.success("Cache cleared! System will rebuild on next query.")
+                        st.session_state.system_ready = False
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Error clearing cache: {e}")
+                        
+                if not cache_valid and st.button("🔧 Rebuild Cache"):
+                    st.session_state.system_ready = False
+                    st.rerun()
             else:
                 st.write("No cache found")
+                if st.button("🚀 Initialize System"):
+                    st.rerun()
         
         # Chat interface
         st.subheader("💬 Ask Your Questions")
