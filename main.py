@@ -206,37 +206,6 @@ class SmartExcelRAG:
         self.embeddings = None
         self.column_mappings = {}
         self.data_insights = {}
-
-    def quick_restore_from_cache(self):
-        try:
-            excel_file_path = find_excel_file()
-            if not excel_file_path:
-                return False
-            sheet_name, _ = find_sheet_name(excel_file_path)
-            if not sheet_name:
-                return False
-                
-            self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, nrows=10)  # Just 10 rows for structure
-            self.embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                model_kwargs={'device': 'cpu'},
-                encode_kwargs={'normalize_embeddings': True}
-            )
-            
-            cached_vectorstore, cached_insights, cached_mappings, cached_hash = load_vectorstore_if_exists(self.embeddings)
-            
-            if cached_vectorstore and cached_insights and cached_mappings:
-                self.vectorstore = cached_vectorstore
-                self.data_insights = cached_insights
-                self.column_mappings = cached_mappings
-                
-                if self.setup_conversation_chain():
-                    return True
-            return False
-        
-        except Exception as e:
-            st.error(f"Quick restore failed: {e}")
-            return False
     
     def compare_discount_rate_by_brand(self, campaign_id: str, brands: list):
         if 'Brand' not in self.df.columns or 'Discount Rate' not in self.df.columns:
@@ -252,15 +221,13 @@ class SmartExcelRAG:
         summary = filtered.groupby("Brand")["Discount Rate"].agg(["count", "mean", "max", "min"]).reset_index()
         summary.columns = ["Brand", "Entries", "Average Discount %", "Max Discount %", "Min Discount %"]
         return summary.to_markdown(index=False)
-        
+
     def load_and_process_data(self):
-        
         if (hasattr(self, 'data_insights') and 
             self.data_insights and 
-            
             hasattr(self, 'vectorstore') and 
             self.vectorstore):
-                
+            
             excel_file_path = find_excel_file()
             if excel_file_path:
                 sheet_name, _ = find_sheet_name(excel_file_path)
@@ -268,7 +235,6 @@ class SmartExcelRAG:
                     try:
                         usecols = ['Country', 'Retailer', 'Issue Start Date', 'Issue End Date', 'Brand', 'Category', 'Product', 'Size', 'Price', 'Discounted Price', 'Discount Rate', 'Main Flyer', 'Quarter', 'Month', 'Year', 'Week']
                         self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, usecols=usecols)
-                        self.df = self.df.head(200)  # Limit as before
                         self.preprocess_data()
                         self.enhance_data_for_analysis()
                         st.success("✅ Full dataset loaded from existing cache")
@@ -282,14 +248,14 @@ class SmartExcelRAG:
                 st.write("📁 Looking for files in these locations:")
                 for path in POSSIBLE_FILE_PATHS:
                     st.write(f"  • {path}")
-                    
+                
                 st.markdown("---")
                 st.subheader("📤 Upload Your Database File")
                 uploaded_file = st.file_uploader(
                     "Upload your Excel database file",
                     type=['xlsx', 'xls'],
                     help="Upload your Excel file containing the data"
-                )
+                    )
                 
                 if uploaded_file:
                     try:
@@ -302,12 +268,12 @@ class SmartExcelRAG:
                             if preferred_sheet in available_sheets:
                                 sheet_name = preferred_sheet
                                 break
+                        
                         if not sheet_name:
                             sheet_name = available_sheets[0]
                             
                         self.df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
                         st.success(f"✅ Data loaded from uploaded file, sheet: {sheet_name}")
-                    
                     except Exception as e:
                         st.error(f"❌ Error reading uploaded file: {str(e)}")
                         return False
@@ -321,25 +287,27 @@ class SmartExcelRAG:
                 
                 usecols = ['Country', 'Retailer', 'Issue Start Date', 'Issue End Date', 'Brand', 'Category', 'Product', 'Size', 'Price', 'Discounted Price', 'Discount Rate', 'Main Flyer', 'Quarter', 'Month', 'Year', 'Week']
                 self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, usecols=usecols)
-                self.df = self.df.head(200)
                 st.info(f"📁 File: {excel_file_path}")
                 st.info(f"📋 Sheet: {sheet_name}")
                 if len(available_sheets) > 1:
                     st.info(f"📋 Available sheets: {', '.join(available_sheets)}")
+            
             if self.df.empty:
                 st.error("❌ No data found in the Excel file")
                 return False
-                
+            
             self.preprocess_data()
             self.enhance_data_for_analysis()
             self.create_data_insights()
             self.create_column_mappings()
+            
             st.success(f"✅ Database loaded: {len(self.df):,} records with {len(self.df.columns)} columns")
             
             with st.expander("📊 Column Information"):
                 st.write("**Columns in your database:**")
                 for i, col in enumerate(self.df.columns, 1):
                     st.write(f"{i}. {col}")
+            
             return True
         except FileNotFoundError:
             st.error(f"❌ Database file not found")
@@ -350,27 +318,25 @@ class SmartExcelRAG:
             st.write(f"Error type: {type(e).__name__}")
             st.write(f"Error details: {str(e)}")
             return False
-
+        
     def quick_restore_from_cache(self):
         try:
             excel_file_path = find_excel_file()
             if not excel_file_path:
                 return False
-                
+            
             sheet_name, _ = find_sheet_name(excel_file_path)
             if not sheet_name:
                 return False
-            
             self.df = pd.read_excel(excel_file_path, sheet_name=sheet_name, nrows=10)  # Just 10 rows for structure
             
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2",
                 model_kwargs={'device': 'cpu'},
                 encode_kwargs={'normalize_embeddings': True}
-            )
+                )
             
             cached_vectorstore, cached_insights, cached_mappings, cached_hash = load_vectorstore_if_exists(self.embeddings)
-            
             if cached_vectorstore and cached_insights and cached_mappings:
                 self.vectorstore = cached_vectorstore
                 self.data_insights = cached_insights
@@ -378,7 +344,9 @@ class SmartExcelRAG:
                 
                 if self.setup_conversation_chain():
                     return True
+            
             return False
+        
         except Exception as e:
             st.error(f"Quick restore failed: {e}")
             return False
@@ -533,29 +501,155 @@ class SmartExcelRAG:
             st.warning(f"Could not create column mappings: {str(e)}")
     
     def create_enhanced_documents(self):
-        """Create optimized documents for vector storage with 22k+ rows"""
         documents = []
-        
-        # Create summary document with data insights
-        summary_content = self.create_summary_document()
+        summary_content = self.create_comprehensive_summary()
         documents.append(Document(
             page_content=summary_content,
             metadata={'type': 'summary', 'importance': 'high'}
-        ))
+            ))
         
-        # Create categorical summaries
-        categorical_docs = self.create_categorical_documents()
-        documents.extend(categorical_docs)
+        analytical_docs = self.create_analytical_documents()
+        documents.extend(analytical_docs)
         
-        # Create batched record documents for efficiency
-        batch_size = 50  # Process records in batches
-        for i in range(0, len(self.df), batch_size):
-            batch_df = self.df.iloc[i:i+batch_size]
-            batch_doc = self.create_batch_document(batch_df, i)
-            documents.append(batch_doc)
-        
+        sample_docs = self.create_strategic_samples()
+        documents.extend(sample_docs)
         return documents
     
+    def create_comprehensive_summary(self):
+        summary_parts = []
+        summary_parts.append(f"DATASET: {self.data_insights['total_records']} records covering retail flyer data")
+        for col, date_info in self.data_insights['date_range'].items():
+            summary_parts.append(f"{col}: {date_info['min']} to {date_info['max']}")
+            
+        if 'Brand' in self.df.columns:
+            brand_stats = self.df.groupby('Brand').agg({
+                'Price': ['count', 'mean', 'min', 'max'],
+                'Discount Rate': 'mean',
+                'Main Flyer': lambda x: (x == 'Yes').sum()
+            }).round(2)
+            
+            for brand in brand_stats.index[:10]:  # Top 10 brands
+                brand_info = brand_stats.loc[brand]
+                summary_parts.append(
+                    f"BRAND_{brand}: {brand_info[('Price', 'count')]} records, "
+                    f"avg_price_{brand_info[('Price', 'mean')]}, "
+                    f"flyer_appearances_{brand_info[('Main Flyer', '<lambda>')]}"
+                    )
+                
+        if 'Category' in self.df.columns:
+            category_counts = self.df['Category'].value_counts().head(10)
+            category_str = ' | '.join([f"{cat}({count})" for cat, count in category_counts.items()])
+            summary_parts.append(f"TOP_CATEGORIES: {category_str}")
+        if 'Country' in self.df.columns:
+            country_counts = self.df['Country'].value_counts().head(5)
+            country_str = ' | '.join([f"{country}({count})" for country, count in country_counts.items()])
+            summary_parts.append(f"COUNTRIES: {country_str}")
+            
+        return " || ".join(summary_parts)
+    
+    def create_analytical_documents(self):
+        
+        documents = []
+        try:
+            if 'Brand' in self.df.columns and 'Price' in self.df.columns:
+                brand_comparison = self.df.groupby('Brand').agg({
+                    'Price': ['count', 'mean', 'std', 'min', 'max'],
+                    'Discount Rate': ['mean', 'std'],
+                    'Main Flyer': lambda x: (x == 'Yes').sum(),
+                    'Country': 'nunique',
+                    'Retailer': 'nunique'
+                }).round(2)
+                
+                comparison_content = "BRAND_ANALYSIS: "
+                for brand in brand_comparison.index:
+                    stats = brand_comparison.loc[brand]
+                    comparison_content += f"{brand}_stats: records={stats[('Price', 'count')]}, avg_price={stats[('Price', 'mean')]}, flyer_count={stats[('Main Flyer', '<lambda>')]}, countries={stats[('Country', 'nunique')]} || "
+                    
+                documents.append(Document(
+                    page_content=comparison_content,
+                    metadata={'type': 'brand_analysis'}
+                    ))
+                
+            if 'Month' in self.df.columns:
+                monthly_trends = self.df.groupby('Month').agg({
+                    'Price': 'mean',
+                    'Discount Rate': 'mean',
+                    'Brand': 'nunique'
+                }).round(2)
+                
+                trend_content = "MONTHLY_TRENDS: "
+                for month in monthly_trends.index:
+                    stats = monthly_trends.loc[month]
+                    trend_content += f"{month}: avg_price={stats['Price']}, avg_discount={stats['Discount Rate']}, brands={stats['Brand']} || "
+                    
+                documents.append(Document(
+                    page_content=trend_content,
+                    metadata={'type': 'monthly_trends'}
+                    ))
+                
+            if 'Category' in self.df.columns and 'Brand' in self.df.columns:
+                cat_brand_matrix = self.df.groupby(['Category', 'Brand']).agg({
+                    'Price': ['count', 'mean'],
+                    'Main Flyer': lambda x: (x == 'Yes').sum()
+                }).round(2)
+                
+                matrix_content = "CATEGORY_BRAND_MATRIX: "
+                for (category, brand), stats in cat_brand_matrix.iterrows():
+                    matrix_content += f"{category}_{brand}: count={stats[('Price', 'count')]}, avg_price={stats[('Price', 'mean')]}, flyers={stats[('Main Flyer', '<lambda>')]} || "
+                    
+                documents.append(Document(
+                    page_content=matrix_content,
+                    metadata={'type': 'category_brand_analysis'}
+                    ))
+        except Exception as e:
+            print(f"Warning: Could not create some analytical documents: {e}")
+        return documents
+    
+    def create_strategic_samples(self):
+        documents = []
+        try:
+            if 'Price' in self.df.columns:
+                high_price_sample = self.df.nlargest(100, 'Price')
+                high_price_content = self.create_sample_content(high_price_sample, "HIGH_PRICE_RECORDS")
+                documents.append(Document(
+                    page_content=high_price_content,
+                    metadata={'type': 'high_price_sample'}
+                    ))
+                
+            if 'Brand' in self.df.columns:
+                top_brands = self.df['Brand'].value_counts().head(5).index
+                for brand in top_brands:
+                    brand_sample = self.df[self.df['Brand'] == brand].sample(min(50, len(self.df[self.df['Brand'] == brand])))
+                    brand_content = self.create_sample_content(brand_sample, f"BRAND_{brand}_SAMPLE")
+                    documents.append(Document(
+                        page_content=brand_content,
+                        metadata={'type': 'brand_sample', 'brand': brand}
+                        ))
+            
+            if 'Issue Start Date' in self.df.columns:
+                recent_sample = self.df.nlargest(100, 'Issue Start Date')
+                recent_content = self.create_sample_content(recent_sample, "RECENT_RECORDS")
+                documents.append(Document(
+                page_content=recent_content,
+                metadata={'type': 'recent_sample'}
+                ))
+        except Exception as e:
+            print(f"Warning: Could not create sample documents: {e}")
+            
+        return documents
+    
+    def create_sample_content(self, sample_df, prefix):
+        content_parts = [prefix]
+        for idx, row in sample_df.iterrows():
+            row_parts = []
+            for col in ['Brand', 'Product', 'Category', 'Price', 'Discounted Price', 'Country', 'Month', 'Main Flyer']:
+                if col in row.index and pd.notna(row[col]) and str(row[col]).strip():
+                    row_parts.append(f"{col}:{row[col]}")
+            
+            if row_parts:
+                content_parts.append("RECORD: " + " | ".join(row_parts))
+        return " || ".join(content_parts)
+
     def create_summary_document(self):
         """Create comprehensive summary document"""
         summary_parts = []
@@ -644,7 +738,7 @@ class SmartExcelRAG:
             
             with st.spinner("📥 Checking for cached embeddings..."):
                 cached_vectorstore, cached_insights, cached_mappings, cached_hash = load_vectorstore_if_exists(self.embeddings)
-            
+                
             if (cached_vectorstore is not None and 
                 cached_hash == current_hash and 
                 cached_insights is not None and 
@@ -656,29 +750,27 @@ class SmartExcelRAG:
                 self.column_mappings = cached_mappings
                 return True
             
-            with st.spinner("🔄 Creating new embeddings (this will take a moment)..."):
+            with st.spinner(f"🔄 Processing {len(self.df):,} records (this will take a moment)..."):
                 st.info("💡 This is a one-time process. Future sessions will be much faster!")
-                
                 documents = self.create_enhanced_documents()
-                
                 if not documents:
                     st.error("No documents created")
                     return False
                 
                 text_splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=1500,
-                    chunk_overlap=200,
+                    chunk_size=2000,  # Larger chunks for better context
+                    chunk_overlap=300,
                     length_function=len,
                     separators=[" || ", " | ", "\n", " ", ""]
-                    )
+                )
                 
                 split_docs = text_splitter.split_documents(documents)
+                
                 self.vectorstore = FAISS.from_documents(
                     split_docs, 
                     self.embeddings,
                     distance_strategy="COSINE"
                     )
-                
                 save_vectorstore_metadata(
                     self.vectorstore, 
                     self.embeddings, 
@@ -687,7 +779,7 @@ class SmartExcelRAG:
                     current_hash
                     )
                 
-                st.success(f"✅ New embeddings created and cached with {len(split_docs)} document chunks")
+                st.success(f"✅ Processed {len(self.df):,} records with {len(split_docs)} optimized document chunks")
                 return True
             
         except Exception as e:
@@ -1275,30 +1367,25 @@ class SmartExcelRAG:
             return df
 
 def validate_cache_integrity():
-    """Validate that cache is complete and usable"""
-    try:
-        if not os.path.exists(EMBEDDINGS_DIR):
+        try:
+            if not os.path.exists(EMBEDDINGS_DIR):
+                return False
+            required_files = ["metadata.pkl", "embeddings_info.pkl"]
+            faiss_files = ["index.faiss", "index.pkl"]
+            
+            for file in required_files:
+                if not os.path.exists(os.path.join(EMBEDDINGS_DIR, file)):
+                    return False
+            
+            faiss_path = os.path.join(EMBEDDINGS_DIR, "faiss_index")
+            for file in faiss_files:
+                if not os.path.exists(os.path.join(faiss_path, file)):
+                    return False
+            
+            return True
+        except Exception:
             return False
             
-        required_files = ["metadata.pkl", "embeddings_info.pkl"]
-        faiss_files = ["index.faiss", "index.pkl"]
-        
-        # Check metadata files
-        for file in required_files:
-            if not os.path.exists(os.path.join(EMBEDDINGS_DIR, file)):
-                return False
-                
-        # Check FAISS index files
-        faiss_path = os.path.join(EMBEDDINGS_DIR, "faiss_index")
-        for file in faiss_files:
-            if not os.path.exists(os.path.join(faiss_path, file)):
-                return False
-                
-        return True
-        
-    except Exception:
-        return False
-
 def main():
     st.title("🤖 Smart Excel Data Assistant")
     st.markdown("*Intelligent query system for comprehensive data analysis*")
@@ -1318,7 +1405,6 @@ def main():
             with st.spinner("🔄 Restoring from cache..."):
                 if st.session_state.rag_system.quick_restore_from_cache():
                     st.session_state.system_ready = True
-                    st.success("✅ System restored from cache - ready to use!")
         except Exception as e:
             st.warning(f"Cache restore failed: {e}. Will reinitialize...")
     
@@ -1352,71 +1438,6 @@ def main():
     
     # Main interface
     if st.session_state.system_ready:
-        
-        # Quick stats in sidebar
-        with st.sidebar:
-            st.header("📊 Database Overview")
-            insights = st.session_state.rag_system.data_insights
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Total Records", f"{insights['total_records']:,}")
-            with col2:
-                st.metric("Columns", len(st.session_state.rag_system.df.columns))
-            
-            # Show some sample data
-            st.subheader("📋 Sample Data")
-            if len(st.session_state.rag_system.df) > 0:
-                st.dataframe(st.session_state.rag_system.df.head(3))
-            
-            st.subheader("🔍 Query Examples")
-            st.markdown("""
-            **Brand Analysis:**
-            - Leaflets for Pringles and Lays in UAE between 7th-23rd
-            - Price/Kg comparison for Pringles vs Lays above 140
-            
-            **Frequency Analysis:**
-            - Brand-wise frequency in kids portfolio month-over-month
-            - Top 5 accounts in KSA during salary periods
-            
-            **Date & Price Queries:**
-            - Products with specific date ranges
-            - Discount analysis by category
-            - Regional price comparisons
-            """)
-            
-            # Cache Management Section
-            st.subheader("🗄️ Cache Management")
-            if os.path.exists(EMBEDDINGS_DIR):
-                cache_valid = validate_cache_integrity()
-                cache_size = sum(os.path.getsize(os.path.join(EMBEDDINGS_DIR, f)) 
-                                for f in os.listdir(EMBEDDINGS_DIR) 
-                                if os.path.isfile(os.path.join(EMBEDDINGS_DIR, f)))
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Cache Size", f"{cache_size / (1024*1024):.1f} MB")
-                with col2:
-                    status = "✅ Valid" if cache_valid else "❌ Invalid"
-                    st.metric("Cache Status", status)
-                
-                if st.button("🗑️ Clear Cache"):
-                    import shutil
-                    try:
-                        shutil.rmtree(EMBEDDINGS_DIR)
-                        st.success("Cache cleared! System will rebuild on next query.")
-                        st.session_state.system_ready = False
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error clearing cache: {e}")
-                        
-                if not cache_valid and st.button("🔧 Rebuild Cache"):
-                    st.session_state.system_ready = False
-                    st.rerun()
-            else:
-                st.write("No cache found")
-                if st.button("🚀 Initialize System"):
-                    st.rerun()
         
         # Chat interface
         st.subheader("💬 Ask Your Questions")
